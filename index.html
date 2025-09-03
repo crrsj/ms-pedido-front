@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gerenciamento de Pedidos</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        input, select { width: 100%; padding: 8px; border: 1px solid #ddd; }
+        button { padding: 10px 15px; background: #007bff; color: white; border: none; cursor: pointer; margin: 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f8f9fa; }
+        .item-row { margin-bottom: 10px; padding: 10px; border: 1px solid #eee; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gerenciamento de Pedidos</h1>
+        
+        <form id="pedidoForm">
+            <div class="form-group">
+                <label>Cliente:</label>
+                <input type="text" id="cliente" required>
+            </div>
+            
+            <h3>Itens do Pedido</h3>
+            <div id="itensContainer">
+                <div class="item-row">
+                    <select class="produto-select" onchange="atualizarPreco(this)">
+                        <option value="">Selecione um produto</option>
+                    </select>
+                    <input type="number" class="quantidade" placeholder="Quantidade" min="1" onchange="calcularTotal()">
+                    <span class="preco-unitario">R$ 0.00</span>
+                    <span class="total-item">R$ 0.00</span>
+                    <button type="button" onclick="removerItem(this)">Remover</button>
+                </div>
+            </div>
+            
+            <button type="button" onclick="adicionarItem()">Adicionar Item</button>
+            
+            <div class="form-group">
+                <label>Total do Pedido:</label>
+                <span id="totalPedido">R$ 0.00</span>
+            </div>
+            
+            <button type="submit">Criar Pedido</button>
+        </form>
+
+        <table id="pedidosTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Cliente</th>
+                    <th>Data</th>
+                    <th>Status</th>
+                    <th>Total</th>
+                    <th>Itens</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <script>
+        const PEDIDOS_API = 'http://localhost:8082/api/pedidos';
+        const PRODUTOS_API = 'http://localhost:8081/api/produtos';
+        let produtos = [];
+        
+        async function carregarProdutos() {
+            const response = await fetch(PRODUTOS_API);
+            produtos = await response.json();
+            
+            const selects = document.querySelectorAll('.produto-select');
+            selects.forEach(select => {
+                select.innerHTML = '<option value="">Selecione um produto</option>';
+                produtos.forEach(produto => {
+                    select.innerHTML += `<option value="${produto.id}" data-preco="${produto.preco}">
+                        ${produto.nome} - R$ ${produto.preco}
+                    </option>`;
+                });
+            });
+        }
+        
+        function adicionarItem() {
+            const container = document.getElementById('itensContainer');
+            const newItem = document.createElement('div');
+            newItem.className = 'item-row';
+            newItem.innerHTML = `
+                <select class="produto-select" onchange="atualizarPreco(this)">
+                    <option value="">Selecione um produto</option>
+                    ${produtos.map(p => 
+                        `<option value="${p.id}" data-preco="${p.preco}">
+                            ${p.nome} - R$ ${p.preco}
+                        </option>`
+                    ).join('')}
+                </select>
+                <input type="number" class="quantidade" placeholder="Quantidade" min="1" onchange="calcularTotal()">
+                <span class="preco-unitario">R$ 0.00</span>
+                <span class="total-item">R$ 0.00</span>
+                <button type="button" onclick="removerItem(this)">Remover</button>
+            `;
+            container.appendChild(newItem);
+        }
+        
+        function removerItem(button) {
+            if (document.querySelectorAll('.item-row').length > 1) {
+                button.parentElement.remove();
+                calcularTotal();
+            }
+        }
+        
+        function atualizarPreco(select) {
+            const preco = select.options[select.selectedIndex]?.dataset.preco || 0;
+            const row = select.parentElement;
+            row.querySelector('.preco-unitario').textContent = `R$ ${parseFloat(preco).toFixed(2)}`;
+            calcularTotal();
+        }
+        
+        function calcularTotal() {
+            let totalPedido = 0;
+            
+            document.querySelectorAll('.item-row').forEach(row => {
+                const select = row.querySelector('.produto-select');
+                const quantidadeInput = row.querySelector('.quantidade');
+                const totalSpan = row.querySelector('.total-item');
+                
+                const preco = select.options[select.selectedIndex]?.dataset.preco || 0;
+                const quantidade = parseInt(quantidadeInput.value) || 0;
+                const totalItem = parseFloat(preco) * quantidade;
+                
+                totalSpan.textContent = `R$ ${totalItem.toFixed(2)}`;
+                totalPedido += totalItem;
+            });
+            
+            document.getElementById('totalPedido').textContent = `R$ ${totalPedido.toFixed(2)}`;
+        }
+        
+        document.getElementById('pedidoForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const itens = [];
+            document.querySelectorAll('.item-row').forEach(row => {
+                const select = row.querySelector('.produto-select');
+                const quantidadeInput = row.querySelector('.quantidade');
+                
+                if (select.value && quantidadeInput.value) {
+                    itens.push({
+                        produtoId: parseInt(select.value),
+                        quantidade: parseInt(quantidadeInput.value),
+                        precoUnitario: parseFloat(select.options[select.selectedIndex].dataset.preco)
+                    });
+                }
+            });
+            
+            const pedido = {
+                cliente: document.getElementById('cliente').value,
+                itens: itens
+            };
+            
+            await fetch(PEDIDOS_API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(pedido)
+            });
+            
+            document.getElementById('pedidoForm').reset();
+            document.getElementById('itensContainer').innerHTML = `
+                <div class="item-row">
+                    <select class="produto-select" onchange="atualizarPreco(this)">
+                        <option value="">Selecione um produto</option>
+                        ${produtos.map(p => 
+                            `<option value="${p.id}" data-preco="${p.preco}">
+                                ${p.nome} - R$ ${p.preco}
+                            </option>`
+                        ).join('')}
+                    </select>
+                    <input type="number" class="quantidade" placeholder="Quantidade" min="1" onchange="calcularTotal()">
+                    <span class="preco-unitario">R$ 0.00</span>
+                    <span class="total-item">R$ 0.00</span>
+                    <button type="button" onclick="removerItem(this)">Remover</button>
+                </div>
+            `;
+            calcularTotal();
+            carregarPedidos();
+        });
+        
+        async function carregarPedidos() {
+            const response = await fetch(PEDIDOS_API);
+            const pedidos = await response.json();
+            const tbody = document.querySelector('#pedidosTable tbody');
+            tbody.innerHTML = '';
+            
+            pedidos.forEach(pedido => {
+                const total = pedido.itens.reduce((sum, item) => 
+                    sum + (item.precoUnitario * item.quantidade), 0);
+                
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${pedido.id}</td>
+                    <td>${pedido.cliente}</td>
+                    <td>${new Date(pedido.dataPedido).toLocaleString()}</td>
+                    <td>${pedido.status}</td>
+                    <td>R$ ${total.toFixed(2)}</td>
+                    <td>${pedido.itens.length} itens</td>
+                `;
+            });
+        }
+        
+        // Inicializar
+        carregarProdutos();
+        carregarPedidos();
+    </script>
+</body>
+</html>
